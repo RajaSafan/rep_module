@@ -36,10 +36,13 @@ EngageAI
     )
 
     with smtplib.SMTP(
-        settings.smtp_host,
-        settings.smtp_port,
+        host=settings.smtp_host,
+        port=settings.smtp_port,
+        timeout=30,
     ) as smtp:
+        smtp.ehlo()
         smtp.starttls()
+        smtp.ehlo()
 
         smtp.login(
             settings.smtp_email,
@@ -47,5 +50,3 @@ EngageAI
         )
 
         smtp.send_message(message)
-        
-        

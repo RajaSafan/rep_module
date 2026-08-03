@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -5,16 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from backend.modules.representatives.models import Representative
-from backend.modules.representatives.schemas import RepresentativeCreate
-
-from datetime import datetime, timedelta, timezone
-
 from backend.core.config import settings
 from backend.core.security import create_invitation_token
 from backend.modules.representatives.email_service import (
     send_representative_invitation,
 )
+from backend.modules.representatives.models import Representative
+from backend.modules.representatives.schemas import RepresentativeCreate
+
 
 def create_representative(
     db: Session,
@@ -26,7 +25,7 @@ def create_representative(
         organization_id=payload.organization_id,
         representative_name=payload.representative_name.strip(),
         service=payload.service.strip(),
-        company_email=str(payload.company_email).lower(),
+        company_email=str(payload.company_email).strip().lower(),
         invitation_token_hash=token_hash,
         invitation_expires_at=(
             datetime.now(timezone.utc)
@@ -53,7 +52,7 @@ def create_representative(
         )
 
     invitation_url = (
-        f"{settings.backend_url}"
+        f"{settings.backend_url.rstrip('/')}"
         f"/representatives/invitation/{raw_token}"
     )
 
@@ -66,16 +65,21 @@ def create_representative(
         )
 
         representative.invitation_status = "Sent"
-        db.commit()
-        db.refresh(representative)
 
     except Exception as error:
         representative.invitation_status = "Email Failed"
-        db.commit()
 
-        print(f"Invitation email failed: {error}")
+        print(
+            f"Invitation email failed: "
+            f"{type(error).__name__}: {error}",
+            flush=True,
+        )
+
+    db.commit()
+    db.refresh(representative)
 
     return representative
+
 
 def get_representatives(
     db: Session,
