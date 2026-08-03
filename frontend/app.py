@@ -1,11 +1,8 @@
-import os
-from uuid import UUID
-
 import requests
 import streamlit as st
 
 
-API_BASE_URL = os.getenv(
+API_BASE_URL = st.secrets.get(
     "API_BASE_URL",
     "http://127.0.0.1:8000",
 )
@@ -24,14 +21,29 @@ st.title("Representative Management")
 st.caption("Add and manage company representatives.")
 
 
-def fetch_representatives():
+def get_error_message(response: requests.Response) -> str:
+    try:
+        error_data = response.json()
+
+        detail = error_data.get("detail")
+
+        if isinstance(detail, str):
+            return detail
+
+        return str(error_data)
+
+    except ValueError:
+        return response.text or "An unexpected error occurred."
+
+
+def fetch_representatives() -> list[dict]:
     try:
         response = requests.get(
             f"{API_BASE_URL}/representatives",
             params={
                 "organization_id": ORGANIZATION_ID,
             },
-            timeout=10,
+            timeout=30,
         )
 
         response.raise_for_status()
@@ -46,7 +58,7 @@ def add_representative(
     representative_name: str,
     service: str,
     company_email: str,
-):
+) -> tuple[bool, str]:
     payload = {
         "organization_id": ORGANIZATION_ID,
         "representative_name": representative_name,
@@ -58,43 +70,49 @@ def add_representative(
         response = requests.post(
             f"{API_BASE_URL}/representatives",
             json=payload,
-            timeout=10,
+            timeout=30,
         )
 
         if response.status_code == 201:
-            return True, "Representative added successfully."
-
-        try:
-            message = response.json().get(
-                "detail",
-                "Could not add representative.",
+            return (
+                True,
+                "Representative added and invitation email processed.",
             )
-        except ValueError:
-            message = "Could not add representative."
 
-        return False, message
+        return (
+            False,
+            f"{response.status_code}: {get_error_message(response)}",
+        )
 
     except requests.RequestException as error:
         return False, str(error)
 
 
-def delete_representative(representative_id: str):
+def delete_representative(
+    representative_id: str,
+) -> tuple[bool, str]:
     try:
         response = requests.delete(
             f"{API_BASE_URL}/representatives/{representative_id}",
-            timeout=10,
+            timeout=30,
         )
 
         if response.status_code == 204:
-            return True
+            return True, "Representative deleted successfully."
 
-        return False
+        return (
+            False,
+            f"{response.status_code}: {get_error_message(response)}",
+        )
 
-    except requests.RequestException:
-        return False
+    except requests.RequestException as error:
+        return False, str(error)
 
 
-with st.form("add_representative_form"):
+with st.form(
+    "add_representative_form",
+    clear_on_submit=True,
+):
     st.subheader("Add Representative")
 
     representative_name = st.text_input(
@@ -152,8 +170,8 @@ if not representatives:
 else:
     for representative in representatives:
         with st.container(border=True):
-            col1, col2, col3, col4, col5 = st.columns(
-                [1.2, 1.4, 1.8, 1.2, 1.3]
+            col1, col2, col3, col4, col5, col6 = st.columns(
+                [1.2, 1.4, 1.8, 1.2, 1.2, 0.8]
             )
 
             with col1:
@@ -171,40 +189,34 @@ else:
                 st.write(representative["company_email"])
 
             with col4:
-                st.write("**Calendar Status**")
+                st.write("**Invitation**")
+
+                invitation_status = representative.get(
+                    "invitation_status",
+                    "Pending",
+                )
+
+                if invitation_status == "Accepted":
+                    st.success("Accepted")
+                elif invitation_status == "Sent":
+                    st.info("Sent")
+                elif invitation_status == "Email Failed":
+                    st.error("Email Failed")
+                elif invitation_status == "Expired":
+                    st.warning("Expired")
+                else:
+                    st.warning(invitation_status)
+
+            with col5:
+                st.write("**Calendar**")
 
                 if representative["calendar_connected"]:
                     st.success("Connected")
                 else:
                     st.warning("Not Connected")
 
-            with col5:
-                st.write("**Actions**")
-
-                if representative["calendar_connected"]:
-                    st.button(
-                        "Calendar Connected",
-                        key=(
-                            f"connected_"
-                            f"{representative['representative_id']}"
-                        ),
-                        disabled=True,
-                        use_container_width=True,
-                    )
-                else:
-                    st.button(
-                        "Connect Google Calendar",
-                        key=(
-                            f"connect_"
-                            f"{representative['representative_id']}"
-                        ),
-                        disabled=True,
-                        help=(
-                            "Google OAuth will be added "
-                            "in the next step."
-                        ),
-                        use_container_width=True,
-                    )
+            with col6:
+                st.write("**Action**")
 
                 if st.button(
                     "Delete",
@@ -214,16 +226,12 @@ else:
                     ),
                     use_container_width=True,
                 ):
-                    deleted = delete_representative(
+                    deleted, message = delete_representative(
                         representative["representative_id"]
                     )
 
                     if deleted:
-                        st.success(
-                            "Representative deleted successfully."
-                        )
+                        st.success(message)
                         st.rerun()
                     else:
-                        st.error(
-                            "Could not delete representative."
-                        )
+                        st.error(message)
