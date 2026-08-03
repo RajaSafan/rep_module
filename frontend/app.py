@@ -7,8 +7,10 @@ API_BASE_URL = st.secrets.get(
     "http://127.0.0.1:8000",
 )
 
-# Temporary organization ID for standalone testing.
 ORGANIZATION_ID = "11111111-1111-1111-1111-111111111111"
+
+# Render free services may take time to wake up.
+REQUEST_TIMEOUT = 120
 
 
 st.set_page_config(
@@ -23,17 +25,16 @@ st.caption("Add and manage company representatives.")
 
 def get_error_message(response: requests.Response) -> str:
     try:
-        error_data = response.json()
-
-        detail = error_data.get("detail")
+        data = response.json()
+        detail = data.get("detail", data)
 
         if isinstance(detail, str):
             return detail
 
-        return str(error_data)
+        return str(detail)
 
     except ValueError:
-        return response.text or "An unexpected error occurred."
+        return response.text or "Unexpected backend error."
 
 
 def fetch_representatives() -> list[dict]:
@@ -43,11 +44,19 @@ def fetch_representatives() -> list[dict]:
             params={
                 "organization_id": ORGANIZATION_ID,
             },
-            timeout=30,
+            timeout=REQUEST_TIMEOUT,
         )
 
         response.raise_for_status()
         return response.json()
+
+    except requests.Timeout:
+        st.error(
+            "The backend is taking too long to respond. "
+            "Open the Render backend URL once, wait for it to start, "
+            "then refresh this page."
+        )
+        return []
 
     except requests.RequestException as error:
         st.error(f"Could not load representatives: {error}")
@@ -70,18 +79,26 @@ def add_representative(
         response = requests.post(
             f"{API_BASE_URL}/representatives",
             json=payload,
-            timeout=30,
+            timeout=REQUEST_TIMEOUT,
         )
 
         if response.status_code == 201:
             return (
                 True,
-                "Representative added and invitation email processed.",
+                "Representative added successfully. "
+                "The invitation email has been processed.",
             )
 
         return (
             False,
             f"{response.status_code}: {get_error_message(response)}",
+        )
+
+    except requests.Timeout:
+        return (
+            False,
+            "The backend timed out. Open the Render backend URL, "
+            "wait for it to start, and try again.",
         )
 
     except requests.RequestException as error:
@@ -94,7 +111,7 @@ def delete_representative(
     try:
         response = requests.delete(
             f"{API_BASE_URL}/representatives/{representative_id}",
-            timeout=30,
+            timeout=REQUEST_TIMEOUT,
         )
 
         if response.status_code == 204:
@@ -104,6 +121,9 @@ def delete_representative(
             False,
             f"{response.status_code}: {get_error_message(response)}",
         )
+
+    except requests.Timeout:
+        return False, "The backend timed out. Please try again."
 
     except requests.RequestException as error:
         return False, str(error)
@@ -177,16 +197,29 @@ else:
             with col1:
                 st.write("**Representative**")
                 st.write(
-                    representative["representative_name"]
+                    representative.get(
+                        "representative_name",
+                        "Unknown",
+                    )
                 )
 
             with col2:
                 st.write("**Service**")
-                st.write(representative["service"])
+                st.write(
+                    representative.get(
+                        "service",
+                        "Not provided",
+                    )
+                )
 
             with col3:
                 st.write("**Company Email**")
-                st.write(representative["company_email"])
+                st.write(
+                    representative.get(
+                        "company_email",
+                        "Not provided",
+                    )
+                )
 
             with col4:
                 st.write("**Invitation**")
@@ -198,19 +231,26 @@ else:
 
                 if invitation_status == "Accepted":
                     st.success("Accepted")
+
                 elif invitation_status == "Sent":
                     st.info("Sent")
+
                 elif invitation_status == "Email Failed":
                     st.error("Email Failed")
+
                 elif invitation_status == "Expired":
                     st.warning("Expired")
+
                 else:
                     st.warning(invitation_status)
 
             with col5:
                 st.write("**Calendar**")
 
-                if representative["calendar_connected"]:
+                if representative.get(
+                    "calendar_connected",
+                    False,
+                ):
                     st.success("Connected")
                 else:
                     st.warning("Not Connected")
@@ -218,16 +258,17 @@ else:
             with col6:
                 st.write("**Action**")
 
+                representative_id = representative[
+                    "representative_id"
+                ]
+
                 if st.button(
                     "Delete",
-                    key=(
-                        f"delete_"
-                        f"{representative['representative_id']}"
-                    ),
+                    key=f"delete_{representative_id}",
                     use_container_width=True,
                 ):
                     deleted, message = delete_representative(
-                        representative["representative_id"]
+                        representative_id
                     )
 
                     if deleted:
@@ -235,3 +276,7 @@ else:
                         st.rerun()
                     else:
                         st.error(message)
+                        
+                        
+                        
+                        
