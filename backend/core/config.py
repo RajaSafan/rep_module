@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:8501"
     backend_url: str = "http://127.0.0.1:8000"
 
-    resend_api_key: str
+    sendgrid_api_key: str
 
     google_client_id: str
     google_client_secret: str
