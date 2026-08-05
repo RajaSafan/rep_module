@@ -76,15 +76,11 @@ from backend.core.config import settings
 from backend.core.security import decrypt_token
 
 
-
 GOOGLE_SCOPES = [
 
-    "https://www.googleapis.com/auth/calendar.events",
-
-    "https://www.googleapis.com/auth/calendar.freebusy",
+    "https://www.googleapis.com/auth/calendar",
 
 ]
-
 
 
 
