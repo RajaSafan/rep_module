@@ -442,7 +442,6 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
-    status,
 )
 
 from fastapi.responses import (
@@ -497,7 +496,7 @@ router = APIRouter(
 
 
 # =====================================================
-# CREATE REPRESENTATIVE
+# CREATE
 # =====================================================
 
 
@@ -519,7 +518,7 @@ def add_representative(
 
 
 # =====================================================
-# LIST REPRESENTATIVES
+# LIST
 # =====================================================
 
 
@@ -540,7 +539,7 @@ def list_representatives(
 
 
 # =====================================================
-# DELETE REPRESENTATIVE
+# DELETE
 # =====================================================
 
 
@@ -574,9 +573,7 @@ def open_invitation(
     db: Session = Depends(get_db),
 ):
 
-    token_hash = hash_invitation_token(
-        token
-    )
+    token_hash = hash_invitation_token(token)
 
 
     representative = db.scalar(
@@ -602,9 +599,7 @@ def open_invitation(
         < datetime.now(timezone.utc)
     ):
 
-        representative.invitation_status = (
-            "Expired"
-        )
+        representative.invitation_status = "Expired"
 
         db.commit()
 
@@ -612,7 +607,6 @@ def open_invitation(
         return """
 
         <html>
-
         <body style="
         font-family:Arial;
         text-align:center;
@@ -620,39 +614,10 @@ def open_invitation(
         ">
 
         <h2>
-        Invitation Expired
-        </h2>
-
-        <p>
-        This invitation link is no longer valid.
-        </p>
-
-        </body>
-
-        </html>
-
-        """
-
-
-
-    if representative.invitation_status == "Accepted":
-
-        return """
-
-        <html>
-
-        <body style="
-        font-family:Arial;
-        text-align:center;
-        margin-top:100px;
-        ">
-
-        <h2>
-        Google Calendar already connected.
+        Invitation expired
         </h2>
 
         </body>
-
         </html>
 
         """
@@ -666,22 +631,14 @@ def open_invitation(
     )
 
 
+
     return f"""
 
     <html>
 
-    <head>
-
-    <title>
-    Connect Calendar
-    </title>
-
-    </head>
-
-
     <body style="
     font-family:Arial;
-    max-width:650px;
+    max-width:600px;
     margin:80px auto;
     padding:30px;
     text-align:center;
@@ -696,25 +653,22 @@ def open_invitation(
 
 
     <p>
-    You have been added as a representative.
+    You have been invited as representative.
     </p>
 
 
-    <hr>
-
-
-    <p>
-    <b>Service</b>
-    </p>
+    <h3>
+    Service
+    </h3>
 
     <p>
     {representative.service}
     </p>
 
 
-    <p>
-    <b>Description</b>
-    </p>
+    <h3>
+    Description
+    </h3>
 
     <p>
     {representative.service_description}
@@ -725,7 +679,7 @@ def open_invitation(
 
     style="
     display:inline-block;
-    margin-top:25px;
+    margin-top:20px;
     padding:14px 30px;
     background:#2563eb;
     color:white;
@@ -747,7 +701,7 @@ def open_invitation(
 
 
 # =====================================================
-# GOOGLE CONNECT START
+# GOOGLE CONNECT
 # =====================================================
 
 
@@ -777,9 +731,6 @@ def connect_google_calendar(
             access_type="offline",
             prompt="consent",
             include_granted_scopes="true",
-            login_hint=(
-                representative.company_email
-            ),
         )
     )
 
@@ -828,12 +779,25 @@ def google_callback(
 
 
 
+    if not credentials.refresh_token:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No refresh token received. "
+                "Remove Google access and reconnect."
+            ),
+        )
+
+
+
     connection = db.scalar(
         select(CalendarConnection).where(
             CalendarConnection.representative_id
             == representative_id
         )
     )
+
 
 
     if not connection:
@@ -853,14 +817,11 @@ def google_callback(
     )
 
 
-    if credentials.refresh_token:
-
-        connection.encrypted_refresh_token = (
-            encrypt_token(
-                credentials.refresh_token
-            )
+    connection.encrypted_refresh_token = (
+        encrypt_token(
+            credentials.refresh_token
         )
-
+    )
 
 
     connection.token_expiry = (
@@ -879,6 +840,7 @@ def google_callback(
 
 
     representative.calendar_connected = True
+
 
     representative.invitation_status = (
         "Accepted"
@@ -912,11 +874,6 @@ def google_callback(
     </p>
 
 
-    <p>
-    You can close this page.
-    </p>
-
-
     </body>
 
     </html>
@@ -926,7 +883,7 @@ def google_callback(
 
 
 # =====================================================
-# CALENDAR STATUS CHECK
+# CHECK CALENDAR STATUS
 # =====================================================
 
 
@@ -943,7 +900,6 @@ def check_calendar_status(
         db=db,
         representative_id=representative_id,
     )
-
 
 
     connection = db.scalar(
@@ -969,7 +925,6 @@ def check_calendar_status(
 
 
     try:
-
 
         verify_google_calendar_access(
             connection

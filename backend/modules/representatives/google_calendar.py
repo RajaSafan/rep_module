@@ -75,10 +75,6 @@ from backend.core.config import settings
 
 from backend.core.security import decrypt_token
 
-from backend.modules.representatives.models import (
-    Representative,
-)
-
 
 
 GOOGLE_SCOPES = [
@@ -102,20 +98,30 @@ def create_google_flow(
 
         "web": {
 
-            "client_id": settings.google_client_id,
+            "client_id":
+                settings.google_client_id,
 
-            "client_secret": settings.google_client_secret,
+
+            "client_secret":
+                settings.google_client_secret,
+
 
             "auth_uri":
                 "https://accounts.google.com/o/oauth2/auth",
 
+
             "token_uri":
                 "https://oauth2.googleapis.com/token",
 
+
             "redirect_uris": [
+
                 settings.google_redirect_uri,
+
             ],
+
         }
+
     }
 
 
@@ -144,15 +150,13 @@ def create_google_flow(
 
 
 
-
 def get_representative_or_404(
     db,
     representative_id: UUID,
-) -> Representative:
-
+):
 
     representative = db.get(
-        Representative,
+        "Representative",
         representative_id,
     )
 
@@ -171,10 +175,17 @@ def get_representative_or_404(
 
 
 
-
 def verify_google_calendar_access(
     connection,
 ):
+
+
+    if not connection.encrypted_refresh_token:
+
+        raise Exception(
+            "Refresh token missing"
+        )
+
 
 
     credentials = Credentials(
@@ -214,10 +225,13 @@ def verify_google_calendar_access(
     )
 
 
-    # Test Google permission
+
+    # Google permission test
+
     service.calendarList().list(
         maxResults=1
     ).execute()
+
 
 
     return True
