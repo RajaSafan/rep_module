@@ -435,7 +435,6 @@
 #     return None    
 
 
-
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -444,30 +443,30 @@ from fastapi import (
     Depends,
     HTTPException,
 )
-from fastapi.responses import RedirectResponse
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
 
 
 from backend.core.database import get_db
 
 from backend.core.security import (
     encrypt_token,
+    hash_invitation_token,
 )
+
 
 from backend.modules.representatives.models import (
     Representative,
     CalendarConnection,
 )
 
+
 from backend.modules.representatives.schemas import (
     RepresentativeCreate,
     RepresentativeResponse,
 )
+
 
 from backend.modules.representatives.service import (
     create_representative,
@@ -475,6 +474,7 @@ from backend.modules.representatives.service import (
     get_representative,
     delete_representative,
 )
+
 
 from backend.modules.representatives.google_calendar import (
     create_google_flow,
@@ -490,6 +490,9 @@ router = APIRouter(
 
 
 
+# ---------------------------------
+# CREATE REPRESENTATIVE
+# ---------------------------------
 
 
 @router.post(
@@ -511,6 +514,11 @@ def add_representative(
 
 
 
+# ---------------------------------
+# LIST REPRESENTATIVES
+# ---------------------------------
+
+
 @router.get(
     "",
     response_model=list[RepresentativeResponse],
@@ -527,6 +535,11 @@ def list_representatives(
 
 
 
+
+
+# ---------------------------------
+# DELETE REPRESENTATIVE
+# ---------------------------------
 
 
 @router.delete(
@@ -547,9 +560,96 @@ def remove_representative(
 
 
 
-# -----------------------------
+# ---------------------------------
+# INVITATION VALIDATION
+# ---------------------------------
+
+
+@router.get(
+    "/invitation/{token}"
+)
+def open_invitation(
+    token: str,
+    db: Session = Depends(get_db),
+):
+
+    token_hash = hash_invitation_token(
+        token
+    )
+
+
+    representative = db.scalar(
+        select(Representative).where(
+            Representative.invitation_token_hash
+            == token_hash
+        )
+    )
+
+
+    if not representative:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Invalid invitation link.",
+        )
+
+
+
+    if (
+        representative.invitation_expires_at
+        and representative.invitation_expires_at
+        < datetime.now(timezone.utc)
+    ):
+
+        representative.invitation_status = (
+            "Expired"
+        )
+
+        db.commit()
+
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invitation link expired.",
+        )
+
+
+
+    return {
+
+        "message":
+            "Invitation is valid.",
+
+
+        "representative_id":
+            str(
+                representative.representative_id
+            ),
+
+
+        "representative_name":
+            representative.representative_name,
+
+
+        "service":
+            representative.service,
+
+
+        "service_description":
+            representative.service_description,
+
+
+        "next_step":
+            "Connect Google Calendar",
+    }
+
+
+
+
+
+# ---------------------------------
 # GOOGLE CALENDAR CONNECT
-# -----------------------------
+# ---------------------------------
 
 
 @router.get(
@@ -582,11 +682,17 @@ def connect_google_calendar(
 
 
     return {
-        "authorization_url": authorization_url
+        "authorization_url":
+            authorization_url
     }
 
 
 
+
+
+# ---------------------------------
+# GOOGLE CALLBACK
+# ---------------------------------
 
 
 @router.get(
@@ -601,10 +707,12 @@ def google_callback(
     representative_id = UUID(state)
 
 
+
     representative = get_representative(
         db=db,
         representative_id=representative_id,
     )
+
 
 
     flow = create_google_flow(
@@ -612,12 +720,15 @@ def google_callback(
     )
 
 
+
     flow.fetch_token(
         code=code
     )
 
 
+
     credentials = flow.credentials
+
 
 
     connection = db.scalar(
@@ -628,33 +739,43 @@ def google_callback(
     )
 
 
+
     if not connection:
 
         connection = CalendarConnection(
             representative_id=representative_id,
         )
 
-
         db.add(connection)
 
 
 
     connection.encrypted_access_token = (
+
         encrypt_token(
             credentials.token
         )
+
         if credentials.token
+
         else None
+
     )
+
 
 
     connection.encrypted_refresh_token = (
+
         encrypt_token(
             credentials.refresh_token
         )
+
         if credentials.refresh_token
+
         else None
+
     )
+
 
 
     connection.token_expiry = (
@@ -662,9 +783,11 @@ def google_callback(
     )
 
 
+
     connection.connection_status = (
         "Connected"
     )
+
 
 
     connection.last_verified_at = (
@@ -672,24 +795,29 @@ def google_callback(
     )
 
 
+
     representative.calendar_connected = True
+
 
 
     db.commit()
 
 
+
     return {
+
         "message":
             "Google Calendar connected successfully."
+
     }
 
 
 
 
 
-# -----------------------------
+# ---------------------------------
 # GOOGLE CALENDAR STATUS CHECK
-# -----------------------------
+# ---------------------------------
 
 
 @router.get(
@@ -707,6 +835,7 @@ def check_calendar_status(
     )
 
 
+
     connection = db.scalar(
         select(CalendarConnection).where(
             CalendarConnection.representative_id
@@ -715,20 +844,27 @@ def check_calendar_status(
     )
 
 
+
     if not connection:
 
         return {
+
             "calendar_connected": False,
-            "connection_status": "Not Connected",
+
+            "connection_status":
+                "Not Connected",
+
         }
 
 
 
     try:
 
+
         verify_google_calendar_access(
             connection
         )
+
 
 
         connection.connection_status = (
@@ -736,7 +872,9 @@ def check_calendar_status(
         )
 
 
+
         representative.calendar_connected = True
+
 
 
         connection.last_verified_at = (
@@ -754,9 +892,11 @@ def check_calendar_status(
         )
 
 
+
         connection.connection_status = (
             "Revoked"
         )
+
 
 
         representative.calendar_connected = False
@@ -766,18 +906,20 @@ def check_calendar_status(
     db.commit()
 
 
+
     return {
 
         "representative_id":
             str(representative_id),
 
+
         "calendar_connected":
             representative.calendar_connected,
+
 
         "connection_status":
             connection.connection_status,
 
     }
-    
     
     
