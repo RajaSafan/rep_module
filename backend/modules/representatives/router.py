@@ -442,6 +442,12 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    status,
+)
+
+from fastapi.responses import (
+    HTMLResponse,
+    RedirectResponse,
 )
 
 from sqlalchemy import select
@@ -490,9 +496,9 @@ router = APIRouter(
 
 
 
-# ---------------------------------
+# =====================================================
 # CREATE REPRESENTATIVE
-# ---------------------------------
+# =====================================================
 
 
 @router.post(
@@ -512,11 +518,9 @@ def add_representative(
 
 
 
-
-
-# ---------------------------------
+# =====================================================
 # LIST REPRESENTATIVES
-# ---------------------------------
+# =====================================================
 
 
 @router.get(
@@ -535,11 +539,9 @@ def list_representatives(
 
 
 
-
-
-# ---------------------------------
+# =====================================================
 # DELETE REPRESENTATIVE
-# ---------------------------------
+# =====================================================
 
 
 @router.delete(
@@ -558,15 +560,14 @@ def remove_representative(
 
 
 
-
-
-# ---------------------------------
-# INVITATION VALIDATION
-# ---------------------------------
+# =====================================================
+# INVITATION PAGE
+# =====================================================
 
 
 @router.get(
-    "/invitation/{token}"
+    "/invitation/{token}",
+    response_class=HTMLResponse,
 )
 def open_invitation(
     token: str,
@@ -608,52 +609,150 @@ def open_invitation(
         db.commit()
 
 
-        raise HTTPException(
-            status_code=400,
-            detail="Invitation link expired.",
-        )
+        return """
+
+        <html>
+
+        <body style="
+        font-family:Arial;
+        text-align:center;
+        margin-top:100px;
+        ">
+
+        <h2>
+        Invitation Expired
+        </h2>
+
+        <p>
+        This invitation link is no longer valid.
+        </p>
+
+        </body>
+
+        </html>
+
+        """
 
 
 
-    return {
+    if representative.invitation_status == "Accepted":
 
-        "message":
-            "Invitation is valid.",
+        return """
 
+        <html>
 
-        "representative_id":
-            str(
-                representative.representative_id
-            ),
+        <body style="
+        font-family:Arial;
+        text-align:center;
+        margin-top:100px;
+        ">
 
+        <h2>
+        Google Calendar already connected.
+        </h2>
 
-        "representative_name":
-            representative.representative_name,
+        </body>
 
+        </html>
 
-        "service":
-            representative.service,
-
-
-        "service_description":
-            representative.service_description,
-
-
-        "next_step":
-            "Connect Google Calendar",
-    }
+        """
 
 
 
+    connect_url = (
+        f"/representatives/"
+        f"{representative.representative_id}"
+        f"/google/connect"
+    )
 
 
-# ---------------------------------
-# GOOGLE CALENDAR CONNECT
-# ---------------------------------
+    return f"""
+
+    <html>
+
+    <head>
+
+    <title>
+    Connect Calendar
+    </title>
+
+    </head>
+
+
+    <body style="
+    font-family:Arial;
+    max-width:650px;
+    margin:80px auto;
+    padding:30px;
+    text-align:center;
+    border:1px solid #ddd;
+    border-radius:12px;
+    ">
+
+
+    <h2>
+    Hello {representative.representative_name}
+    </h2>
+
+
+    <p>
+    You have been added as a representative.
+    </p>
+
+
+    <hr>
+
+
+    <p>
+    <b>Service</b>
+    </p>
+
+    <p>
+    {representative.service}
+    </p>
+
+
+    <p>
+    <b>Description</b>
+    </p>
+
+    <p>
+    {representative.service_description}
+    </p>
+
+
+    <a href="{connect_url}"
+
+    style="
+    display:inline-block;
+    margin-top:25px;
+    padding:14px 30px;
+    background:#2563eb;
+    color:white;
+    text-decoration:none;
+    border-radius:8px;
+    ">
+
+    Connect Google Calendar
+
+    </a>
+
+
+    </body>
+
+    </html>
+
+    """
+
+
+
+# =====================================================
+# GOOGLE CONNECT START
+# =====================================================
 
 
 @router.get(
-    "/{representative_id}/google/connect"
+    "/{representative_id}/google/connect",
 )
 def connect_google_calendar(
     representative_id: UUID,
@@ -677,26 +776,28 @@ def connect_google_calendar(
         flow.authorization_url(
             access_type="offline",
             prompt="consent",
+            include_granted_scopes="true",
+            login_hint=(
+                representative.company_email
+            ),
         )
     )
 
 
-    return {
-        "authorization_url":
-            authorization_url
-    }
+    return RedirectResponse(
+        authorization_url
+    )
 
 
 
-
-
-# ---------------------------------
+# =====================================================
 # GOOGLE CALLBACK
-# ---------------------------------
+# =====================================================
 
 
 @router.get(
-    "/google/callback"
+    "/google/callback",
+    response_class=HTMLResponse,
 )
 def google_callback(
     code: str,
@@ -707,12 +808,10 @@ def google_callback(
     representative_id = UUID(state)
 
 
-
     representative = get_representative(
         db=db,
         representative_id=representative_id,
     )
-
 
 
     flow = create_google_flow(
@@ -720,11 +819,9 @@ def google_callback(
     )
 
 
-
     flow.fetch_token(
         code=code
     )
-
 
 
     credentials = flow.credentials
@@ -739,11 +836,10 @@ def google_callback(
     )
 
 
-
     if not connection:
 
         connection = CalendarConnection(
-            representative_id=representative_id,
+            representative_id=representative_id
         )
 
         db.add(connection)
@@ -751,30 +847,19 @@ def google_callback(
 
 
     connection.encrypted_access_token = (
-
         encrypt_token(
             credentials.token
         )
-
-        if credentials.token
-
-        else None
-
     )
 
 
+    if credentials.refresh_token:
 
-    connection.encrypted_refresh_token = (
-
-        encrypt_token(
-            credentials.refresh_token
+        connection.encrypted_refresh_token = (
+            encrypt_token(
+                credentials.refresh_token
+            )
         )
-
-        if credentials.refresh_token
-
-        else None
-
-    )
 
 
 
@@ -783,11 +868,9 @@ def google_callback(
     )
 
 
-
     connection.connection_status = (
         "Connected"
     )
-
 
 
     connection.last_verified_at = (
@@ -795,29 +878,56 @@ def google_callback(
     )
 
 
-
     representative.calendar_connected = True
 
+    representative.invitation_status = (
+        "Accepted"
+    )
 
 
     db.commit()
 
 
 
-    return {
+    return """
 
-        "message":
-            "Google Calendar connected successfully."
+    <html>
 
-    }
+    <body style="
+    font-family:Arial;
+    text-align:center;
+    margin-top:100px;
+    ">
+
+
+    <h2 style="color:green">
+
+    Calendar accessed successfully.
+
+    </h2>
+
+
+    <p>
+    Your Google Calendar is now connected.
+    </p>
+
+
+    <p>
+    You can close this page.
+    </p>
+
+
+    </body>
+
+    </html>
+
+    """
 
 
 
-
-
-# ---------------------------------
-# GOOGLE CALENDAR STATUS CHECK
-# ---------------------------------
+# =====================================================
+# CALENDAR STATUS CHECK
+# =====================================================
 
 
 @router.get(
@@ -852,7 +962,7 @@ def check_calendar_status(
             "calendar_connected": False,
 
             "connection_status":
-                "Not Connected",
+            "Not Connected"
 
         }
 
@@ -866,15 +976,12 @@ def check_calendar_status(
         )
 
 
-
         connection.connection_status = (
             "Connected"
         )
 
 
-
         representative.calendar_connected = True
-
 
 
         connection.last_verified_at = (
@@ -892,11 +999,9 @@ def check_calendar_status(
         )
 
 
-
         connection.connection_status = (
             "Revoked"
         )
-
 
 
         representative.calendar_connected = False
@@ -910,16 +1015,14 @@ def check_calendar_status(
     return {
 
         "representative_id":
-            str(representative_id),
+        str(representative_id),
 
 
         "calendar_connected":
-            representative.calendar_connected,
+        representative.calendar_connected,
 
 
         "connection_status":
-            connection.connection_status,
+        connection.connection_status,
 
     }
-    
-    
